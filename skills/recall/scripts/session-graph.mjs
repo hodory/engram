@@ -170,13 +170,9 @@ function extractFilePaths(jsonlPath) {
     }
   }
 
-  // Convert startTime to KST-aware timestamp (store as Date, display in KST)
-  const KST_OFFSET = 9 * 60 * 60 * 1000;
-  const startTimeKST = new Date(startTime.getTime() + KST_OFFSET);
-
   return {
     sessionId,
-    startTime: startTimeKST,   // Date object shifted to KST wall time (treated as UTC internally)
+    startTime,   // Raw UTC Date — compare directly with parseDateExpr boundaries
     userMsgCount,
     title: firstUserMsg || 'Untitled',
     files: normalized,
@@ -315,14 +311,12 @@ function buildGraph(sessions, minFiles = 2) {
 
     if (files.size < minFiles) continue;
 
-    // Session node
+    // Session node — shift to KST for display only
     const sid = s.sessionId.slice(0, 8);
-    // startTime was shifted to KST, so day-of-week is KST local
-    const dt = s.startTime;
-    // weekday in KST: dt is already a Date whose UTC values represent KST wall time
-    const dayOfWeek = dt.getUTCDay();          // 0=Sun..6=Sat  (JS UTC day of shifted time)
-    // Convert JS day (0=Sun) to Python-style weekday (0=Mon)
-    const day = (dayOfWeek + 6) % 7;
+    const KST_OFFSET = 9 * 60 * 60 * 1000;
+    const dt = new Date(s.startTime.getTime() + KST_OFFSET);
+    const dayOfWeek = dt.getUTCDay();          // 0=Sun..6=Sat
+    const day = (dayOfWeek + 6) % 7;           // 0=Mon..6=Sun
     const dayColor = DAY_COLORS[day] || '#999';
     const timeStr = `${String(dt.getUTCHours()).padStart(2, '0')}:${String(dt.getUTCMinutes()).padStart(2, '0')}`;
     const dateStr = `${String(dt.getUTCMonth() + 1).padStart(2, '0')}/${String(dt.getUTCDate()).padStart(2, '0')}`;
@@ -641,7 +635,7 @@ async function main() {
       const result = extractFilePaths(jsonlPath);
       if (result === null) continue;
 
-      // Date filter (startTime already shifted to KST wall time stored as UTC)
+      // Date filter (startTime is raw UTC, parseDateExpr returns KST boundaries in UTC)
       const t = result.startTime.getTime();
       if (t < dateStart.getTime() || t >= dateEnd.getTime()) continue;
 
@@ -659,28 +653,25 @@ async function main() {
     return;
   }
 
-  // Format date label
+  // Format date label — shift to KST for display
   const ONE_DAY = 24 * 60 * 60 * 1000;
+  const KST_MS = 9 * 60 * 60 * 1000;
+  const fmtKST = d => {
+    const k = new Date(d.getTime() + KST_MS);
+    const yyyy = k.getUTCFullYear();
+    const mm = String(k.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(k.getUTCDate()).padStart(2, '0');
+    return { yyyy, mm, dd, day: (k.getUTCDay() + 6) % 7 };
+  };
   let dateLabel;
   if (dateEnd.getTime() - dateStart.getTime() <= ONE_DAY) {
-    // Format dateStart as KST date string
-    const d = dateStart;
-    const dayOfWeek = d.getUTCDay();
-    const day = (dayOfWeek + 6) % 7;
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const { yyyy, mm, dd, day } = fmtKST(dateStart);
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     dateLabel = `${yyyy}-${mm}-${dd} (${dayNames[day]})`;
   } else {
-    const fmtDate = d => {
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(d.getUTCDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-    const endDay = new Date(dateEnd.getTime() - ONE_DAY);
-    dateLabel = `${fmtDate(dateStart)} ~ ${fmtDate(endDay)}`;
+    const s = fmtKST(dateStart);
+    const e = fmtKST(new Date(dateEnd.getTime() - ONE_DAY));
+    dateLabel = `${s.yyyy}-${s.mm}-${s.dd} ~ ${e.yyyy}-${e.mm}-${e.dd}`;
   }
 
   console.log(`\nBuilding graph for ${dateLabel} (KST)`);
