@@ -9,8 +9,8 @@
  * DATE_EXPR examples: yesterday, today, 2026-02-25, "last tuesday", "this week",
  *                     "last week", "3 days ago", "last 3 days"
  *
- * All dates are in KST (UTC+9). Every Claude Code user has JSONL session files
- * in ~/.claude/projects/. No custom setup needed.
+ * All dates use the system's local timezone. Every Claude Code user has JSONL
+ * session files in ~/.claude/projects/. No custom setup needed.
  */
 
 import { readdirSync, statSync, readFileSync, existsSync } from "fs";
@@ -18,7 +18,8 @@ import { join, basename } from "path";
 import { homedir } from "os";
 
 const CLAUDE_PROJECTS = join(homedir(), ".claude", "projects");
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // UTC+9
+const LOCAL_OFFSET_MS = -new Date().getTimezoneOffset() * 60 * 1000;
+const LOCAL_TZ_NAME = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Patterns to strip from user messages
 const STRIP_PATTERNS = [
@@ -38,25 +39,25 @@ const DAY_NAMES = {
 };
 
 // ---------------------------------------------------------------------------
-// KST helpers
+// Local timezone helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Return the current time as a Date adjusted to KST (the Date object itself
- * stays in UTC, but its numeric value reflects the KST wall-clock moment for
+ * Return the current time as a Date adjusted to local timezone (the Date object itself
+ * stays in UTC, but its numeric value reflects the local timezone wall-clock moment for
  * arithmetic that only uses getTime()).
  *
- * We represent "KST midnight" as UTC midnight of the KST calendar date, i.e.
- * we shift the epoch value by +9 h so that floor-to-day gives the KST date.
+ * We represent "local timezone midnight" as UTC midnight of the local timezone calendar date, i.e.
+ * we shift the epoch value by +9 h so that floor-to-day gives the local timezone date.
  */
 
-/** @returns {Date} today's midnight in KST, represented as a UTC Date */
-function kstTodayStart() {
+/** @returns {Date} today's midnight in local timezone, represented as a UTC Date */
+function localTodayStart() {
   const nowUtcMs = Date.now();
-  const nowKstMs = nowUtcMs + KST_OFFSET_MS;
+  const nowKstMs = nowUtcMs + LOCAL_OFFSET_MS;
   const kstMidnightMs = Math.floor(nowKstMs / 86400000) * 86400000;
-  // Convert back to a real UTC epoch that, when displayed as UTC, equals KST midnight
-  return new Date(kstMidnightMs - KST_OFFSET_MS);
+  // Convert back to a real UTC epoch that, when displayed as UTC, equals local timezone midnight
+  return new Date(kstMidnightMs - LOCAL_OFFSET_MS);
 }
 
 /** @param {Date} d @returns {Date} */
@@ -64,9 +65,9 @@ function addDays(d, n) {
   return new Date(d.getTime() + n * 86400000);
 }
 
-/** @param {Date} d @returns {number} 0=Mon..6=Sun in KST */
-function kstWeekday(d) {
-  const kstMs = d.getTime() + KST_OFFSET_MS;
+/** @param {Date} d @returns {number} 0=Mon..6=Sun in local timezone */
+function localWeekday(d) {
+  const kstMs = d.getTime() + LOCAL_OFFSET_MS;
   // JS getUTCDay(): 0=Sun..6=Sat; shift to Mon-based
   const jsDay = new Date(kstMs).getUTCDay(); // 0=Sun
   return (jsDay + 6) % 7; // 0=Mon..6=Sun
@@ -77,30 +78,30 @@ function parseIso(isoStr) {
   return new Date(isoStr.replace('Z', '+00:00'));
 }
 
-/** @param {Date} d @returns {boolean} whether d falls in KST [start, end) */
-function inKstRange(d, start, end) {
+/** @param {Date} d @returns {boolean} whether d falls in local timezone [start, end) */
+function inLocalRange(d, start, end) {
   return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
 }
 
 /**
- * Format a UTC Date as KST HH:MM.
+ * Format a UTC Date as local timezone HH:MM.
  * @param {Date} d
  * @returns {string}
  */
-function fmtKstTime(d) {
-  const kst = new Date(d.getTime() + KST_OFFSET_MS);
+function fmtLocalTime(d) {
+  const kst = new Date(d.getTime() + LOCAL_OFFSET_MS);
   const h = String(kst.getUTCHours()).padStart(2, '0');
   const m = String(kst.getUTCMinutes()).padStart(2, '0');
   return `${h}:${m}`;
 }
 
 /**
- * Format a UTC Date as KST YYYY-MM-DD (Day).
+ * Format a UTC Date as local timezone YYYY-MM-DD (Day).
  * @param {Date} d
  * @returns {string}
  */
-function fmtKstDate(d) {
-  const kst = new Date(d.getTime() + KST_OFFSET_MS);
+function fmtLocalDate(d) {
+  const kst = new Date(d.getTime() + LOCAL_OFFSET_MS);
   const y = kst.getUTCFullYear();
   const mo = String(kst.getUTCMonth() + 1).padStart(2, '0');
   const dy = String(kst.getUTCDate()).padStart(2, '0');
@@ -110,12 +111,12 @@ function fmtKstDate(d) {
 }
 
 /**
- * Format a UTC Date as KST YYYY-MM-DD.
+ * Format a UTC Date as local timezone YYYY-MM-DD.
  * @param {Date} d
  * @returns {string}
  */
-function fmtKstDateOnly(d) {
-  const kst = new Date(d.getTime() + KST_OFFSET_MS);
+function fmtLocalDateOnly(d) {
+  const kst = new Date(d.getTime() + LOCAL_OFFSET_MS);
   const y = kst.getUTCFullYear();
   const mo = String(kst.getUTCMonth() + 1).padStart(2, '0');
   const dy = String(kst.getUTCDate()).padStart(2, '0');
@@ -127,17 +128,17 @@ function fmtKstDateOnly(d) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a date expression into [start, end) Date range in KST.
+ * Parse a date expression into [start, end) Date range in local timezone.
  *
  * Returns start of day (inclusive) and end of day (exclusive) as UTC Dates
- * whose values correspond to KST midnight boundaries.
+ * whose values correspond to local timezone midnight boundaries.
  *
  * @param {string} expr
  * @returns {[Date, Date]}
  */
 export function parseDateExpr(expr) {
   expr = expr.trim().toLowerCase();
-  const todayStart = kstTodayStart();
+  const todayStart = localTodayStart();
 
   if (expr === 'today') {
     return [todayStart, addDays(todayStart, 1)];
@@ -151,12 +152,12 @@ export function parseDateExpr(expr) {
   // YYYY-MM-DD
   const isoMatch = expr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) {
-    // Construct KST midnight for this date
+    // Construct local timezone midnight for this date
     const d = new Date(Date.UTC(
       parseInt(isoMatch[1], 10),
       parseInt(isoMatch[2], 10) - 1,
       parseInt(isoMatch[3], 10),
-    ) - KST_OFFSET_MS);
+    ) - LOCAL_OFFSET_MS);
     return [d, addDays(d, 1)];
   }
 
@@ -178,14 +179,14 @@ export function parseDateExpr(expr) {
 
   // "this week" (Monday-based)
   if (expr === 'this week') {
-    const dow = kstWeekday(todayStart);
+    const dow = localWeekday(todayStart);
     const monday = addDays(todayStart, -dow);
     return [monday, addDays(todayStart, 1)];
   }
 
   // "last week"
   if (expr === 'last week') {
-    const dow = kstWeekday(todayStart);
+    const dow = localWeekday(todayStart);
     const thisMonday = addDays(todayStart, -dow);
     const lastMonday = addDays(thisMonday, -7);
     return [lastMonday, thisMonday];
@@ -195,7 +196,7 @@ export function parseDateExpr(expr) {
   const lastDayMatch = expr.match(/^last\s+(\w+)$/);
   if (lastDayMatch && DAY_NAMES[lastDayMatch[1]] !== undefined) {
     const targetDow = DAY_NAMES[lastDayMatch[1]];
-    const currentDow = kstWeekday(todayStart);
+    const currentDow = localWeekday(todayStart);
     let daysBack = (currentDow - targetDow + 7) % 7;
     if (daysBack === 0) daysBack = 7;
     const start = addDays(todayStart, -daysBack);
@@ -383,7 +384,7 @@ function scanSessionMetadata(filepath, dateStart, dateEnd) {
 
     // Early exit: if we have start_time within first 5 lines and it's outside range, skip
     if (startTime && i < 5) {
-      if (!inKstRange(startTime, addDays(dateStart, -1), dateEnd)) {
+      if (!inLocalRange(startTime, addDays(dateStart, -1), dateEnd)) {
         return null;
       }
     }
@@ -391,8 +392,8 @@ function scanSessionMetadata(filepath, dateStart, dateEnd) {
 
   if (!startTime) return null;
 
-  // Final date check in KST
-  if (!inKstRange(startTime, dateStart, dateEnd)) return null;
+  // Final date check in local timezone
+  if (!inLocalRange(startTime, dateStart, dateEnd)) return null;
 
   // Derive title from first message
   let title = 'Untitled';
@@ -468,10 +469,10 @@ function cmdList(args) {
   // Format date range for header
   const rangeMs = dateEnd.getTime() - dateStart.getTime();
   const headerDate = rangeMs <= 86400000
-    ? fmtKstDate(dateStart)
-    : `${fmtKstDateOnly(dateStart)} to ${fmtKstDateOnly(addDays(dateEnd, -1))}`;
+    ? fmtLocalDate(dateStart)
+    : `${fmtLocalDateOnly(dateStart)} to ${fmtLocalDateOnly(addDays(dateEnd, -1))}`;
 
-  console.log(`\nSessions for ${headerDate} (KST)\n`);
+  console.log(`\nSessions for ${headerDate} (${LOCAL_TZ_NAME})\n`);
 
   if (sessions.length === 0) {
     console.log('No sessions found.');
@@ -485,7 +486,7 @@ function cmdList(args) {
 
   for (let i = 0; i < sessions.length; i++) {
     const s = sessions[i];
-    const timeStr = fmtKstTime(s.start_time);
+    const timeStr = fmtLocalTime(s.start_time);
     const sizeStr = formatSize(s.file_size);
     const title = s.title.slice(0, 60);
     console.log(` ${String(i + 1).padStart(2)}  ${timeStr}  ${String(s.user_msg_count).padStart(4)}  ${sizeStr.padStart(6)}  ${title}`);
@@ -568,7 +569,7 @@ function cmdExpand(args) {
     if (tsStr) {
       try {
         const dt = parseIso(tsStr);
-        tsLabel = fmtKstTime(dt);
+        tsLabel = fmtLocalTime(dt);
       } catch {
         // ignore
       }
@@ -699,7 +700,7 @@ DATE_EXPR examples:
   "this week", "last week"
   "last monday" ... "last sunday"
 
-All dates are in KST (UTC+9).`);
+All dates use your system timezone.`);
 }
 
 // ---------------------------------------------------------------------------
