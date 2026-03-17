@@ -234,22 +234,6 @@ if (existsSync(join(recallSource, 'SKILL.md'))) {
   };
   copyDirRecursive(recallSource, recallDest);
   console.log('[ok] Recall skill installed');
-
-  const venvPath = join(recallDest, '.venv');
-  if (!existsSync(venvPath)) {
-    try {
-      execSync(`python3 -m venv "${venvPath}"`, { stdio: 'pipe', timeout: 30000 });
-      execSync(`"${join(venvPath, 'bin', 'pip3')}" install -r "${join(recallDest, 'requirements.txt')}"`, {
-        stdio: 'pipe',
-        timeout: 120000,
-      });
-      console.log('[ok] Recall venv created + dependencies installed');
-    } catch (e) {
-      console.log(`[warn] Recall venv setup failed: ${e.message}`);
-    }
-  } else {
-    console.log('[ok] Recall venv already exists');
-  }
 }
 
 // 10. Run initial compaction for all matching project dirs

@@ -20,7 +20,7 @@ Parse the user's input after `/recall` and classify:
 Run the recall-day script:
 
 ```bash
-~/.claude/skills/engram-recall/.venv/bin/python3 ~/.claude/skills/engram-recall/scripts/recall-day.py list DATE_EXPR
+bun ~/.claude/skills/engram-recall/scripts/recall-day.mjs list DATE_EXPR
 ```
 
 Replace `DATE_EXPR` with the parsed date expression. Supported (all dates in KST):
@@ -37,7 +37,7 @@ Options:
 Present the table to the user. If they pick a session to expand:
 
 ```bash
-~/.claude/skills/engram-recall/.venv/bin/python3 ~/.claude/skills/engram-recall/scripts/recall-day.py expand SESSION_ID
+bun ~/.claude/skills/engram-recall/scripts/recall-day.mjs expand SESSION_ID
 ```
 
 This shows the conversation flow (user messages, assistant first lines, tool calls).
@@ -88,7 +88,7 @@ qmd search "VARIANT_3" -c my-project -n 5
 Strip "graph" prefix from query to get the date expression. Run:
 
 ```bash
-~/.claude/skills/engram-recall/.venv/bin/python3 ~/.claude/skills/engram-recall/scripts/session-graph.py DATE_EXPR
+bun ~/.claude/skills/engram-recall/scripts/session-graph.mjs DATE_EXPR
 ```
 
 Options:
