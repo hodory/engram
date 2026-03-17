@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"pip3 install git-filter-repo 2>&1\",\"timeout\":30000,\"description\":\"Install git-filter-repo\"}",
-  "error": "Exit code 1\nerror: externally-managed-environment\n\n× This environment is externally managed\n╰─> To install Python packages system-wide, try brew install\n    xyz, where xyz is the package you are trying to\n    install.\n    \n    If you wish to install a Python library that isn't in Homebrew,\n    use a virtual environment:\n    \n    python3 -m venv path/to/venv\n    source path/to/venv/bin/activate\n    python3 -m pip install xyz\n    \n    If you wish to install a Python application that isn't in Homeb...",
-  "timestamp": "2026-03-17T14:55:59.604Z",
-  "retry_count": 2
-}

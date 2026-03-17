@@ -3,6 +3,8 @@ node_modules/
 .state.json
 .idea/
 *.log
+.omc/
+AGENTS.md
 
 # claude-mem auto-generated
 **/CLAUDE.md
