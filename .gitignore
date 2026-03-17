@@ -6,6 +6,7 @@ node_modules/
 
 # claude-mem auto-generated
 **/CLAUDE.md
+!/CLAUDE.md
 
 # test fixtures (local session data)
 tests/fixtures/sessions-md/
