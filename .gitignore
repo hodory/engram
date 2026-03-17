@@ -1,0 +1,11 @@
+node_modules/
+.lock/
+.state.json
+.idea/
+*.log
+
+# claude-mem auto-generated
+**/CLAUDE.md
+
+# test fixtures (local session data)
+tests/fixtures/sessions-md/

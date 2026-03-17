@@ -1,0 +1,19 @@
+{
+  "name": "engram",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "QMD-powered memory compaction for Claude Code. Generates ROOT.md (always-loaded topical index) + monthly summaries from session logs.",
+  "bin": {
+    "engram": "./cli/main.mjs"
+  },
+  "scripts": {
+    "test": "bun test",
+    "compact": "bun cli/main.mjs compact",
+    "init": "bun cli/main.mjs init"
+  },
+  "keywords": ["claude-code", "memory", "compaction", "qmd", "root-md"],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}
