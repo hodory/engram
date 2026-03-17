@@ -2,7 +2,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { resolveProject, findProjectDirs, getMemoryPath, getCompactionDir, getProjectsDir } from '../lib/resolve.mjs';
-import { extractTitleFromJsonl, extractSessionDate, extractKeywords } from '../lib/extract.mjs';
+import { extractTitleFromJsonl, extractSessionDate, extractKeywords, isClaudeMemSession } from '../lib/extract.mjs';
 import { generateMonthlyNode, determineStatus, parseMonthlyNode } from '../lib/monthly.mjs';
 import { generateRoot } from '../lib/root-gen.mjs';
 import { injectRoot } from '../lib/memory-inject.mjs';
@@ -69,6 +69,10 @@ try {
       if (!flags.full && fileStat.mtime <= lastRun) continue;
 
       const content = readFileSync(filePath, 'utf-8');
+
+      // Skip claude-mem observer sessions
+      if (isClaudeMemSession(content)) continue;
+
       const title = extractTitleFromJsonl(content);
       const date = extractSessionDate(content);
       if (!date) continue;

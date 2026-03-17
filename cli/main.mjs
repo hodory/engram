@@ -5,6 +5,7 @@ const [,, cmd, ...args] = process.argv;
 const commands = {
   compact:         () => import('./compact.mjs'),
   'check-pending': () => import('./check-pending.mjs'),
+  hook:            () => import('./hook.mjs'),
   init:            () => import('./init.mjs'),
   status:          () => import('./status.mjs'),
 };
@@ -15,6 +16,7 @@ if (!cmd || !commands[cmd]) {
   console.error('Commands:');
   console.error('  compact <project-dir> [--full] [--root-only]   Run compaction');
   console.error('  check-pending                                  Check for pending summarization');
+  console.error('  hook session-end                               SessionEnd hook handler');
   console.error('  init [--project <name>]                        Initialize project');
   console.error('  status [<project>]                             Show compaction status');
   process.exit(cmd ? 1 : 0);

@@ -80,7 +80,7 @@ tentative|summarized → (월 종료 + 7일) → fixed (불변)
 | `~/.claude/projects/{raw-dir}/*.jsonl` | Raw JSONL session logs (Claude Code 직접 생성) |
 | `~/.claude/compaction/{project}/` | Compaction 출력 (monthly/, ROOT.md, .state.json) |
 | `~/.claude/projects/{raw-dir}/memory/MEMORY.md` | ROOT 주입 대상 |
-| `scripts/stop-hook.sh` | SessionEnd hook — 세션 종료 시 engram compact 자동 호출 |
+| `cli/hook.mjs` | SessionEnd hook handler (`engram hook session-end`) |
 | `skills/compaction/SKILL.md` | LLM 요약 skill (needs-summarization 처리) |
 | `skills/recall/` | 세션 recall skill (temporal/topic/graph) |
 | `~/.claude/skills/engram-recall/` | recall skill 설치 위치 (Bun 런타임) |

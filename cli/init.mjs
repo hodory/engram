@@ -129,7 +129,7 @@ for (const pd of matchingDirs) {
 
 // 6. Configure SessionEnd hook in settings.json
 const settingsPath = join(HOME, '.claude', 'settings.json');
-const engramCmd = `bash "\${HOME}/workspace/engram/scripts/stop-hook.sh"`;
+const engramCmd = `"\${HOME}/.bun/bin/bun" "\${HOME}/workspace/engram/cli/main.mjs" hook session-end`;
 
 let hookInstalled = false;
 if (existsSync(settingsPath)) {
@@ -179,15 +179,7 @@ if (existsSync(settingsPath)) {
   hookInstalled = true;
 }
 
-// 7. Verify stop-hook.sh exists
-const stopHookPath = join(PACKAGE_ROOT, 'scripts', 'stop-hook.sh');
-if (existsSync(stopHookPath)) {
-  console.log('[ok] stop-hook.sh found');
-} else {
-  console.error('[!!] scripts/stop-hook.sh missing — hook will not work');
-}
-
-// 8. Register QMD collection (optional)
+// 7. Register QMD collection (optional)
 try {
   execSync('qmd --version', { stdio: 'ignore' });
   const collectionName = `${project}-compaction`;
@@ -207,7 +199,7 @@ try {
   console.log('[skip] QMD not installed (optional — BM25/vector search disabled)');
 }
 
-// 9. Install skills
+// 8. Install skills
 const skillSource = join(PACKAGE_ROOT, 'skills', 'compaction', 'SKILL.md');
 const skillDest = join(HOME, '.claude', 'skills', 'engram-compaction');
 mkdirSync(skillDest, { recursive: true });
@@ -236,7 +228,7 @@ if (existsSync(join(recallSource, 'SKILL.md'))) {
   console.log('[ok] Recall skill installed');
 }
 
-// 10. Run initial compaction for all matching project dirs
+// 9. Run initial compaction for all matching project dirs
 console.log('\n[..] Running initial compaction (--full)...');
 for (const pd of matchingDirs) {
   try {
