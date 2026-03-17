@@ -3,17 +3,20 @@
  *
  * Subcommands:
  *   session-end   — run compact in background after session
- *   session-start — check version, auto-update if remote is newer
+ *   session-start — check version (cached 6h), auto-update if remote is newer
  */
 
 import { homedir } from 'os';
 import { join, dirname } from 'path';
-import { mkdirSync, appendFileSync, readFileSync } from 'fs';
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = join(__dirname, '..');
+
+const GITHUB_RAW_URL = 'https://raw.githubusercontent.com/hodory/engram/master/package.json';
+const CHECK_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // Drain stdin (hook context JSON) — read and discard
 process.stdin.resume();
@@ -59,25 +62,53 @@ function sessionEnd() {
 }
 
 // ---------------------------------------------------------------------------
-// session-start: version check + auto-update (only if remote is newer)
+// session-start: cached version check + auto-update
 // ---------------------------------------------------------------------------
 function sessionStart() {
   const HOME = homedir();
   const logFile = join(HOME, '.claude', 'compaction', 'hook.log');
+  const cacheFile = join(HOME, '.claude', 'compaction', '.version-cache.json');
   mkdirSync(dirname(logFile), { recursive: true });
 
+  // Check cache — skip network call if TTL not expired
+  const cached = readCache(cacheFile);
+  if (cached && (Date.now() - cached.checked_at) < CHECK_TTL_MS) {
+    // Cache still fresh — only act if a pending update was found previously
+    if (cached.remote_version && cached.needs_update) {
+      applyUpdate(cached.remote_version, logFile, cacheFile);
+    }
+    return setTimeout(() => process.exit(0), 10);
+  }
+
+  // TTL expired — fetch remote version via GitHub raw API
   const localVersion = getLocalVersion();
-  const remoteVersion = getRemoteVersion();
+  const remoteVersion = fetchRemoteVersion();
+
+  // Save cache regardless of result
+  writeCache(cacheFile, {
+    checked_at: Date.now(),
+    local_version: localVersion,
+    remote_version: remoteVersion,
+    needs_update: remoteVersion && localVersion && isNewer(remoteVersion, localVersion),
+  });
 
   if (!remoteVersion || !localVersion) {
     return setTimeout(() => process.exit(0), 10);
   }
 
-  // Only update if remote is strictly newer
-  if (!isNewer(remoteVersion, localVersion)) {
-    return setTimeout(() => process.exit(0), 10);
+  if (isNewer(remoteVersion, localVersion)) {
+    applyUpdate(remoteVersion, logFile, cacheFile);
   }
 
+  setTimeout(() => process.exit(0), 10);
+}
+
+// ---------------------------------------------------------------------------
+// Update logic
+// ---------------------------------------------------------------------------
+function applyUpdate(remoteVersion, logFile, cacheFile) {
+  const HOME = homedir();
+  const localVersion = getLocalVersion();
   const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
   appendFileSync(logFile, `[${timestamp}] update ${localVersion} → ${remoteVersion}\n`);
 
@@ -98,16 +129,24 @@ function sessionStart() {
 
     appendFileSync(logFile, `[${timestamp}] updated to ${remoteVersion}\n`);
     console.log(`engram updated: ${localVersion} → ${remoteVersion}`);
+
+    // Clear needs_update flag in cache
+    writeCache(cacheFile, {
+      checked_at: Date.now(),
+      local_version: remoteVersion,
+      remote_version: remoteVersion,
+      needs_update: false,
+    });
   } catch (e) {
     appendFileSync(logFile, `[${timestamp}] update failed: ${e.message}\n`);
   }
-
-  setTimeout(() => process.exit(0), 10);
 }
 
-/**
- * Compare semver strings. Returns true if a > b.
- */
+// ---------------------------------------------------------------------------
+// Version helpers
+// ---------------------------------------------------------------------------
+
+/** Compare semver strings. Returns true if a > b. */
 function isNewer(a, b) {
   const pa = a.split('.').map(Number);
   const pb = b.split('.').map(Number);
@@ -127,14 +166,34 @@ function getLocalVersion() {
   }
 }
 
-function getRemoteVersion() {
+/** Fetch remote version via GitHub raw API (~200ms, no git fetch needed). */
+function fetchRemoteVersion() {
   try {
-    const raw = execSync(
-      'git fetch origin master --quiet 2>/dev/null && git show origin/master:package.json',
-      { cwd: PACKAGE_ROOT, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] }
-    );
+    const raw = execSync(`curl -sL --max-time 5 "${GITHUB_RAW_URL}"`, {
+      encoding: 'utf8',
+      timeout: 8000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return JSON.parse(raw).version;
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Cache helpers
+// ---------------------------------------------------------------------------
+function readCache(cacheFile) {
+  try {
+    if (!existsSync(cacheFile)) return null;
+    return JSON.parse(readFileSync(cacheFile, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(cacheFile, data) {
+  try {
+    writeFileSync(cacheFile, JSON.stringify(data, null, 2), 'utf8');
+  } catch { /* best effort */ }
 }
