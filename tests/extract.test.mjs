@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { extractTitle, extractKeywords } from '../lib/extract.mjs';
+import { extractTitle, extractTitleFromJsonl, extractSessionDate, extractKeywords } from '../lib/extract.mjs';
 
 // ---------------------------------------------------------------------------
 // extractTitle
@@ -70,7 +70,7 @@ describe('extractTitle', () => {
       '',
       '## User',
       '',
-      '/Users/user/workspace/my_project/12r/program/app/Product/manifest.xml',
+      '/Users/user/workspace/my-project/app/Product/manifest.xml',
       '상품 매니페스트 수정',
     ].join('\n');
 
@@ -136,6 +136,132 @@ describe('extractTitle', () => {
     ].join('\n');
 
     expect(extractTitle(md)).toBe('실제 메시지');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractTitleFromJsonl
+// ---------------------------------------------------------------------------
+describe('extractTitleFromJsonl', () => {
+  function jsonl(...entries) {
+    return entries.map(e => JSON.stringify(e)).join('\n');
+  }
+
+  test('extracts title from first real user message', () => {
+    const content = jsonl(
+      { type: 'progress', timestamp: '2026-03-17T10:00:00Z', data: { type: 'hook_progress' } },
+      { type: 'user', message: { role: 'user', content: 'engram 성능 분석해줘' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'OK' }] } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('engram 성능 분석해줘');
+  });
+
+  test('extracts text from content array', () => {
+    const content = jsonl(
+      { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'API 설계 검토' }] } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('API 설계 검토');
+  });
+
+  test('skips tool result messages', () => {
+    const content = jsonl(
+      { type: 'user', message: { role: 'user', content: [{ tool_use_id: 'x', type: 'tool_result', content: 'OK' }] }, toolUseResult: { mode: 'content' }, sourceToolAssistantUUID: 'abc' },
+      { type: 'user', message: { role: 'user', content: 'Redis 캐시 설정' } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('Redis 캐시 설정');
+  });
+
+  test('skips isMeta messages', () => {
+    const content = jsonl(
+      { type: 'user', isMeta: true, message: { role: 'user', content: 'system init' } },
+      { type: 'user', message: { role: 'user', content: '실제 메시지' } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('실제 메시지');
+  });
+
+  test('skips noise patterns (commands, JSON, file paths)', () => {
+    const content = jsonl(
+      { type: 'user', message: { role: 'user', content: '[command: effort]' } },
+      { type: 'user', message: { role: 'user', content: '{"type": "config"}' } },
+      { type: 'user', message: { role: 'user', content: '/Users/foo/bar.txt' } },
+      { type: 'user', message: { role: 'user', content: 'ghost 배치 최적화' } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('ghost 배치 최적화');
+  });
+
+  test('truncates long titles to 50 characters', () => {
+    const longMsg = 'A'.repeat(60);
+    const content = jsonl(
+      { type: 'user', message: { role: 'user', content: longMsg } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe(longMsg.slice(0, 50));
+  });
+
+  test('uses first line of multiline message', () => {
+    const content = jsonl(
+      { type: 'user', message: { role: 'user', content: '첫 번째 줄\n두 번째 줄\n세 번째 줄' } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('첫 번째 줄');
+  });
+
+  test('returns Untitled when no user messages', () => {
+    const content = jsonl(
+      { type: 'progress', data: { type: 'hook_progress' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] } },
+    );
+
+    expect(extractTitleFromJsonl(content)).toBe('Untitled');
+  });
+
+  test('handles empty content gracefully', () => {
+    expect(extractTitleFromJsonl('')).toBe('Untitled');
+  });
+
+  test('handles malformed JSON lines gracefully', () => {
+    const content = 'not json\n{"type":"user","message":{"role":"user","content":"OK 메시지"}}\n{broken';
+
+    expect(extractTitleFromJsonl(content)).toBe('OK 메시지');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractSessionDate
+// ---------------------------------------------------------------------------
+describe('extractSessionDate', () => {
+  test('extracts date from first entry timestamp', () => {
+    const content = JSON.stringify({ type: 'progress', timestamp: '2026-03-17T14:23:35.134Z' });
+
+    expect(extractSessionDate(content)).toBe('2026-03-17');
+  });
+
+  test('returns null for entry without timestamp', () => {
+    const content = JSON.stringify({ type: 'progress', data: {} });
+
+    expect(extractSessionDate(content)).toBeNull();
+  });
+
+  test('returns null for empty content', () => {
+    expect(extractSessionDate('')).toBeNull();
+  });
+
+  test('returns null for invalid JSON', () => {
+    expect(extractSessionDate('not json at all')).toBeNull();
+  });
+
+  test('only reads first line', () => {
+    const content = [
+      JSON.stringify({ type: 'progress', timestamp: '2026-01-15T10:00:00Z' }),
+      JSON.stringify({ type: 'user', timestamp: '2026-01-16T10:00:00Z' }),
+    ].join('\n');
+
+    expect(extractSessionDate(content)).toBe('2026-01-15');
   });
 });
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is engram
 
-QMD-powered memory compaction for Claude Code. Raw session logs(`sessions-md/`)를 monthly summaries + ROOT.md(topical index)로 압축하여 MEMORY.md에 자동 주입. QMD hybrid search(BM25 + vector)가 세밀한 검색을 전담하고, ROOT.md는 "무엇이 존재하는지"를 알려주는 역할.
+QMD-powered memory compaction for Claude Code. JSONL 세션 로그(`~/.claude/projects/`)를 monthly summaries + ROOT.md(topical index)로 압축하여 MEMORY.md에 자동 주입. QMD hybrid search(BM25 + vector)가 세밀한 검색을 전담하고, ROOT.md는 "무엇이 존재하는지"를 알려주는 역할.
 
 ## Commands
 
@@ -24,7 +24,7 @@ bun cli/main.mjs init --project <name> # 프로젝트 초기화
 ## Architecture
 
 ```
-~/.claude/sessions-md/{project}/YYYY-MM/*.md   (raw, jsonl2md.py가 생성)
+~/.claude/projects/{raw-dir}/*.jsonl   (Claude Code가 직접 생성)
      ↓  engram compact
 ~/.claude/compaction/{project}/
   ├── monthly/{YYYY-MM}.md    (keyword-dense summary, YAML frontmatter)
@@ -34,13 +34,13 @@ bun cli/main.mjs init --project <name> # 프로젝트 초기화
 ~/.claude/projects/{raw-dir}/memory/MEMORY.md  (ENGRAM-BEGIN/END 마커 사이 교체)
 ```
 
-3-level compaction: raw → monthly → ROOT. hipocampus의 5-level에서 daily/weekly 제거.
+3-level compaction: JSONL → monthly → ROOT. jsonl2md.py 의존성 제거.
 
 ### Data Flow (compact 명령)
 
 1. **Lock** — `lib/lock.mjs`로 mkdir atomic lock 획득 (async, PID stale detection)
-2. **Scan** — `lib/resolve.mjs`가 프로젝트명 해석 + worktree 디렉토리 통합 탐색
-3. **Extract** — `lib/extract.mjs`가 각 세션 md에서 제목 추출 (3-level fallback) + 키워드 빈도 분석
+2. **Scan** — `lib/resolve.mjs`가 프로젝트명 해석 + `~/.claude/projects/` JSONL 파일 탐색
+3. **Extract** — `lib/extract.mjs`가 JSONL에서 첫 사용자 메시지로 제목 추출 + 키워드 빈도 분석
 4. **Monthly** — `lib/monthly.mjs`가 YAML frontmatter 포함 월별 노드 생성/갱신, status lifecycle 적용
 5. **ROOT** — `lib/root-gen.mjs`가 Active Context + Historical Summary + Topics Index 생성 (80줄 제한)
 6. **Inject** — `lib/memory-inject.mjs`가 MEMORY.md의 `<!-- ENGRAM-BEGIN -->` / `<!-- ENGRAM-END -->` 마커 사이 교체 (200줄 총량 제한)
@@ -77,7 +77,7 @@ tentative|summarized → (월 종료 + 7일) → fixed (불변)
 
 | Path | Purpose |
 |------|---------|
-| `~/.claude/sessions-md/` | Raw session logs (jsonl2md.py 출력) |
+| `~/.claude/projects/{raw-dir}/*.jsonl` | Raw JSONL session logs (Claude Code 직접 생성) |
 | `~/.claude/compaction/{project}/` | Compaction 출력 (monthly/, ROOT.md, .state.json) |
 | `~/.claude/projects/{raw-dir}/memory/MEMORY.md` | ROOT 주입 대상 |
 | `scripts/stop-hook.sh` | SessionEnd hook — 세션 종료 시 engram compact 자동 호출 |

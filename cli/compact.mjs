@@ -1,16 +1,16 @@
 import { join } from 'path';
 import { homedir } from 'os';
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
-import { resolveProject, findSessionDirs, getMemoryPath, getCompactionDir } from '../lib/resolve.mjs';
-import { extractTitle, extractKeywords } from '../lib/extract.mjs';
+import { resolveProject, findProjectDirs, getMemoryPath, getCompactionDir, getProjectsDir } from '../lib/resolve.mjs';
+import { extractTitleFromJsonl, extractSessionDate, extractKeywords } from '../lib/extract.mjs';
 import { generateMonthlyNode, determineStatus, parseMonthlyNode } from '../lib/monthly.mjs';
 import { generateRoot } from '../lib/root-gen.mjs';
 import { injectRoot } from '../lib/memory-inject.mjs';
 import { acquireLock, releaseLock } from '../lib/lock.mjs';
 import { execSync } from 'child_process';
 
-const HOME = homedir();
-const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
+// slice(3) skips: [0] bun, [1] main.mjs, [2] "compact"
+const args = process.argv.slice(3).filter(a => !a.startsWith('--'));
 const flags = {
   full: process.argv.includes('--full'),
   rootOnly: process.argv.includes('--root-only'),
@@ -22,8 +22,7 @@ if (!projectDir) {
   process.exit(1);
 }
 
-const sessionsBase = join(HOME, '.claude', 'sessions-md');
-const project = resolveProject(projectDir, sessionsBase);
+const project = resolveProject(projectDir);
 const compactionDir = getCompactionDir(project);
 const monthlyDir = join(compactionDir, 'monthly');
 const lockDir = join(compactionDir, '.lock');
@@ -47,62 +46,39 @@ try {
 
   const lastRun = state.last_run ? new Date(state.last_run) : new Date(0);
 
-  // 3. Scan session directories
-  const sessionDirs = findSessionDirs(project, sessionsBase);
+  // 3. Scan JSONL session files from ~/.claude/projects/
+  const projectsDir = getProjectsDir();
+  const projectDirs = findProjectDirs(project, projectsDir);
   const sessionsByMonth = new Map();
   const allSessions = [];
 
-  for (const dir of sessionDirs) {
-    const dirPath = join(sessionsBase, dir);
-    const monthDirs = readdirSync(dirPath).filter(d => /^\d{4}-\d{2}$/.test(d));
-
-    for (const monthDir of monthDirs) {
-      const monthPath = join(dirPath, monthDir);
-      const files = readdirSync(monthPath).filter(f => f.endsWith('.md'));
-
-      for (const file of files) {
-        const filePath = join(monthPath, file);
-        const fileStat = statSync(filePath);
-
-        // Skip unchanged files unless --full
-        if (!flags.full && fileStat.mtime <= lastRun) continue;
-
-        const content = readFileSync(filePath, 'utf-8');
-        const title = extractTitle(content);
-        const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
-        const date = dateMatch ? dateMatch[1] : monthDir + '-01';
-        const period = date.slice(0, 7); // "YYYY-MM"
-
-        const entry = { date, title, source: `${dir}/${monthDir}/${file}` };
-
-        if (!sessionsByMonth.has(period)) sessionsByMonth.set(period, []);
-        sessionsByMonth.get(period).push(entry);
-        allSessions.push(entry);
-      }
+  for (const dir of projectDirs) {
+    const dirPath = join(projectsDir, dir);
+    let files;
+    try {
+      files = readdirSync(dirPath).filter(f => f.endsWith('.jsonl'));
+    } catch {
+      continue;
     }
-  }
 
-  // If --full, also read existing unchanged sessions for complete monthly nodes
-  if (flags.full) {
-    // Already scanning all files above
-  }
+    for (const file of files) {
+      const filePath = join(dirPath, file);
+      const fileStat = statSync(filePath);
 
-  // For months that haven't changed, load existing monthly nodes
-  if (!flags.full) {
-    const existingMonthFiles = existsSync(monthlyDir)
-      ? readdirSync(monthlyDir).filter(f => f.endsWith('.md'))
-      : [];
+      // Skip unchanged files unless --full
+      if (!flags.full && fileStat.mtime <= lastRun) continue;
 
-    for (const mf of existingMonthFiles) {
-      const period = mf.replace('.md', '');
-      if (sessionsByMonth.has(period)) continue; // has new data
+      const content = readFileSync(filePath, 'utf-8');
+      const title = extractTitleFromJsonl(content);
+      const date = extractSessionDate(content);
+      if (!date) continue;
 
-      // Load existing node for ROOT generation
-      const content = readFileSync(join(monthlyDir, mf), 'utf-8');
-      const parsed = parseMonthlyNode(content);
-      if (parsed && parsed.status === 'fixed') {
-        // Keep as-is, don't need to reload sessions
-      }
+      const period = date.slice(0, 7); // "YYYY-MM"
+      const entry = { date, title, source: `${dir}/${file}` };
+
+      if (!sessionsByMonth.has(period)) sessionsByMonth.set(period, []);
+      sessionsByMonth.get(period).push(entry);
+      allSessions.push(entry);
     }
   }
 
@@ -125,43 +101,22 @@ try {
         }
       }
 
-      // For full rebuild: need ALL sessions for this month, not just changed ones
-      let allMonthSessions = sessions;
-      if (flags.full) {
-        allMonthSessions = [];
-        for (const dir of sessionDirs) {
-          const monthPath = join(sessionsBase, dir, period.slice(0, 7));
-          if (!existsSync(monthPath)) continue;
-          const files = readdirSync(monthPath).filter(f => f.endsWith('.md'));
-          for (const file of files) {
-            const content = readFileSync(join(monthPath, file), 'utf-8');
-            const title = extractTitle(content);
-            const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
-            allMonthSessions.push({
-              date: dateMatch ? dateMatch[1] : period + '-01',
-              title,
-              source: `${dir}/${period}/${file}`,
-            });
-          }
-        }
-      }
-
-      const keywords = extractKeywords(allMonthSessions.map(s => s.title));
-      const status = determineStatus(period, allMonthSessions.length, now, currentStatus);
+      const keywords = extractKeywords(sessions.map(s => s.title));
+      const status = determineStatus(period, sessions.length, now, currentStatus);
 
       const nodeContent = generateMonthlyNode({
         period,
-        sessions: allMonthSessions,
+        sessions,
         keywords,
         status,
       });
 
       writeFileSync(existingNodePath, nodeContent, 'utf-8');
-      monthlyNodes.push({ period, keywords, status, sessionCount: allMonthSessions.length });
+      monthlyNodes.push({ period, keywords, status, sessionCount: sessions.length });
 
       state.monthly_nodes[period] = {
         status,
-        session_count: allMonthSessions.length,
+        session_count: sessions.length,
         last_updated: now.toISOString().slice(0, 10),
       };
     }
@@ -213,20 +168,7 @@ try {
     writeFileSync(memoryPath, updated, 'utf-8');
   }
 
-  // 7. Register QMD collections + update + embed
-  // 7a. sessions-md collection (기존 stop-hook에서 하던 역할 흡수)
-  for (const dir of sessionDirs) {
-    if (dir.startsWith('-')) continue; // raw name은 스킵
-    try {
-      execSync(`qmd collection show "${dir}" 2>/dev/null`, { stdio: 'ignore' });
-    } catch {
-      try {
-        execSync(`cd "${sessionsBase}" && qmd collection add "${dir}"`, { stdio: 'ignore' });
-      } catch { /* continue */ }
-    }
-  }
-
-  // 7b. compaction collection
+  // 7. Register QMD compaction collection + update + embed
   const collectionName = `${project}-compaction`;
   try {
     execSync(`qmd collection show "${collectionName}" 2>/dev/null`, { stdio: 'ignore' });
@@ -236,12 +178,12 @@ try {
     } catch { /* continue */ }
   }
 
-  // 7c. BM25 인덱스 동기 업데이트 (~0.5초)
+  // 7b. BM25 인덱스 동기 업데이트 (~0.5초)
   try {
     execSync('qmd update', { stdio: 'ignore', timeout: 10000 });
   } catch { /* qmd update failed, continue */ }
 
-  // 7d. 벡터 임베딩 백그라운드 실행 (5분+, 블로킹 방지)
+  // 7c. 벡터 임베딩 백그라운드 실행 (5분+, 블로킹 방지)
   try {
     execSync('nohup qmd embed >/dev/null 2>&1 &', { stdio: 'ignore', shell: true });
   } catch { /* continue */ }
