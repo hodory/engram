@@ -1,6 +1,6 @@
 {
   "name": "engram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "QMD-powered memory compaction for Claude Code. Generates ROOT.md (always-loaded topical index) + monthly summaries from session logs.",
   "bin": {

@@ -127,55 +127,45 @@ for (const pd of matchingDirs) {
   }
 }
 
-// 6. Configure SessionEnd hook in settings.json
+// 6. Configure hooks in settings.json
 const settingsPath = join(HOME, '.claude', 'settings.json');
-const engramCmd = `"\${HOME}/.bun/bin/bun" "\${HOME}/workspace/engram/cli/main.mjs" hook session-end`;
+const bunCmd = `"\${HOME}/.bun/bin/bun" "\${HOME}/workspace/engram/cli/main.mjs"`;
+const hookDefs = {
+  SessionStart: { command: `${bunCmd} hook session-start`, timeout: 30 },
+  SessionEnd:   { command: `${bunCmd} hook session-end`,   timeout: 30 },
+};
 
 let hookInstalled = false;
 if (existsSync(settingsPath)) {
   const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+  if (!settings.hooks) settings.hooks = {};
+  let changed = false;
 
-  // Check if engram hook already exists
-  const sessionEndHooks = settings.hooks?.SessionEnd || [];
-  const hasEngram = sessionEndHooks.some(entry =>
-    entry.hooks?.some(h => h.command && h.command.includes('engram'))
-  );
-
-  if (hasEngram) {
-    console.log('[ok] SessionEnd hook already configured');
-    hookInstalled = true;
-  } else {
-    // Add engram hook
-    if (!settings.hooks) settings.hooks = {};
-    if (!settings.hooks.SessionEnd) settings.hooks.SessionEnd = [];
-
-    settings.hooks.SessionEnd.push({
-      hooks: [{
-        type: 'command',
-        command: engramCmd,
-        timeout: 30,
-      }],
-    });
-
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-    console.log('[ok] SessionEnd hook added to ~/.claude/settings.json');
-    hookInstalled = true;
+  for (const [event, def] of Object.entries(hookDefs)) {
+    if (!settings.hooks[event]) settings.hooks[event] = [];
+    const has = settings.hooks[event].some(entry =>
+      entry.hooks?.some(h => h.command && h.command.includes('engram'))
+    );
+    if (!has) {
+      settings.hooks[event].push({ hooks: [{ type: 'command', ...def }] });
+      changed = true;
+    }
   }
+
+  if (changed) {
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    console.log('[ok] Hooks added to ~/.claude/settings.json');
+  } else {
+    console.log('[ok] Hooks already configured');
+  }
+  hookInstalled = true;
 } else {
-  // Create minimal settings.json with hook
-  const settings = {
-    hooks: {
-      SessionEnd: [{
-        hooks: [{
-          type: 'command',
-          command: engramCmd,
-          timeout: 30,
-        }],
-      }],
-    },
-  };
+  const settings = { hooks: {} };
+  for (const [event, def] of Object.entries(hookDefs)) {
+    settings.hooks[event] = [{ hooks: [{ type: 'command', ...def }] }];
+  }
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-  console.log('[ok] Created ~/.claude/settings.json with SessionEnd hook');
+  console.log('[ok] Created ~/.claude/settings.json with hooks');
   hookInstalled = true;
 }
 
@@ -247,6 +237,7 @@ console.log('\nWhat was set up:');
 console.log('  - Compaction output: ~/.claude/compaction/' + project + '/');
 console.log('  - MEMORY.md markers: ENGRAM-BEGIN/END for ROOT injection');
 if (hookInstalled) {
+  console.log('  - SessionStart hook: auto-update version check');
   console.log('  - SessionEnd hook: auto-compact on session end');
 }
 console.log('\nNext steps:');
