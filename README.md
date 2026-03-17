@@ -2,16 +2,18 @@
 
 QMD-powered memory compaction for Claude Code.
 
-Generates **ROOT.md** (always-loaded topical index) + **monthly summaries** from session logs, solving the fundamental problem: *"agents can't search for knowledge they don't know exists."*
+Generates **ROOT.md** (always-loaded topical index) + **monthly summaries** from JSONL session logs, solving the fundamental problem: *"agents can't search for knowledge they don't know exists."*
 
 Inspired by [hipocampus](https://github.com/kevin-hs-sohn/hipocampus), simplified for QMD-first environments.
+
+[한국어](README.ko.md)
 
 ## How It Works
 
 ```
-sessions-md/ (raw session logs)
+~/.claude/projects/{project}/*.jsonl   (Claude Code native session logs)
      ↓  engram compact
-compaction/{project}/
+~/.claude/compaction/{project}/
   ├── monthly/2026-03.md    (keyword-dense summary)
   ├── monthly/2026-02.md
   └── ROOT.md               (topical index, ~80 lines)
@@ -24,53 +26,69 @@ compaction/{project}/
 ## Prerequisites
 
 - [Bun](https://bun.sh) >= 1.0
-- [QMD](https://github.com/tobi/qmd) (`bun add -g @tobilu/qmd`)
-- Claude Code with `sessions-md/` pipeline (via `jsonl2md.py`)
+- [QMD](https://github.com/tobi/qmd) (optional — enables BM25 + vector search)
 
 ## Installation
 
 ```bash
-# Clone and link
-git clone <this-repo> ~/workspace/engram
+git clone https://github.com/hodory/engram.git ~/workspace/engram
 cd ~/workspace/engram
-bun link
 
 # Initialize for your project
-engram init --project <project-name>
+bun cli/main.mjs init --project <project-name>
 ```
 
 `init` will:
 1. Create `~/.claude/compaction/{project}/` directories
 2. Insert ROOT markers into your MEMORY.md
-3. Add engram to your stop-hook.sh
-4. Register a QMD collection for compaction data
-5. Run initial compaction on all existing sessions
-6. Install the compaction skill for LLM summarization
+3. **Auto-configure SessionEnd hook** in `~/.claude/settings.json`
+4. Register a QMD collection (if QMD installed)
+5. Install compaction and recall skills
+6. Run initial compaction on all existing sessions
+
+No Python, no venv, no extra dependencies — just Bun.
 
 ## Usage
 
 ```bash
-# Run compaction (normally called by stop-hook automatically)
-engram compact <project-dir>
+# Run compaction (normally called by SessionEnd hook automatically)
+bun cli/main.mjs compact <project-dir>
 
 # Full rebuild (re-process all sessions)
-engram compact <project-name> --full
+bun cli/main.mjs compact <project-dir> --full
 
 # Regenerate ROOT.md only
-engram compact <project-name> --root-only
+bun cli/main.mjs compact <project-dir> --root-only
 
 # Check if LLM summarization is pending
-engram check-pending
+bun cli/main.mjs check-pending
 
 # View compaction status
-engram status [project-name]
+bun cli/main.mjs status [project-name]
+```
+
+## Recall
+
+Load context from past sessions directly in Claude Code:
+
+```bash
+# Temporal — list sessions by date
+bun skills/recall/scripts/recall-day.mjs list yesterday
+bun skills/recall/scripts/recall-day.mjs list "last week"
+bun skills/recall/scripts/recall-day.mjs list 2026-03-17
+
+# Expand a session
+bun skills/recall/scripts/recall-day.mjs expand <session-id>
+
+# Graph — interactive session-file relationship visualization
+bun skills/recall/scripts/session-graph.mjs "last week" --min-files 3
 ```
 
 ## Architecture
 
 ```
-3-level compaction (vs hipocampus's 5-level):
-  Raw (sessions-md/) → Monthly summaries → ROOT.md
+3-level compaction:
+  JSONL (Claude Code native) → Monthly summaries → ROOT.md
 
 QMD handles all search:
   ROOT.md → "what exists?" → qmd query → specific results
@@ -83,8 +101,10 @@ No tree traversal needed — QMD's hybrid search
 
 | Component | File | Trigger |
 |-----------|------|---------|
-| Mechanical compaction | `cli/compact.mjs` | stop-hook (every session end) |
-| LLM summarization | `skills/compaction/SKILL.md` | session start (when pending) |
+| Mechanical compaction | `cli/compact.mjs` | SessionEnd hook (every session end) |
+| LLM summarization | `skills/compaction/SKILL.md` | Session start (when pending) |
+| Temporal recall | `skills/recall/scripts/recall-day.mjs` | `/recall` skill |
+| Session graph | `skills/recall/scripts/session-graph.mjs` | `/recall graph` skill |
 | Project initializer | `cli/init.mjs` | `engram init` (once) |
 
 ### Status Lifecycle
