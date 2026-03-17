@@ -1,6 +1,6 @@
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
@@ -33,7 +33,6 @@ if (!project) {
     console.error('[!!] No sessions-md directory found. Specify --project <name>');
     process.exit(1);
   }
-  const { readdirSync } = await import('fs');
   const candidates = readdirSync(sessionsBase).filter(d => {
     return !d.startsWith('.') && !d.startsWith('-');
   });
@@ -76,7 +75,6 @@ if (!existsSync(stateFile)) {
 // 5. Find and update MEMORY.md
 const projectsDir = join(HOME, '.claude', 'projects');
 if (existsSync(projectsDir)) {
-  const { readdirSync } = await import('fs');
   const projectDirs = readdirSync(projectsDir).filter(d =>
     d.includes(project) && existsSync(join(projectsDir, d, 'memory'))
   );
@@ -154,6 +152,47 @@ if (existsSync(skillSource)) {
   console.log('[ok] Compaction skill installed');
 } else {
   console.log('[warn] Skill source not found, skipping');
+}
+
+// 8b. Install recall skill (SKILL.md + scripts + workflows + venv)
+const recallSource = join(PACKAGE_ROOT, 'skills', 'recall');
+const recallDest = join(HOME, '.claude', 'skills', 'engram-recall');
+if (existsSync(join(recallSource, 'SKILL.md'))) {
+  // Copy directory tree recursively (SKILL.md, scripts/, workflows/)
+  const copyDirRecursive = (src, dest) => {
+    mkdirSync(dest, { recursive: true });
+    for (const entry of readdirSync(src, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name === '__pycache__' || entry.name === 'CLAUDE.md') continue;
+      const srcPath = join(src, entry.name);
+      const destPath = join(dest, entry.name);
+      if (entry.isDirectory()) {
+        copyDirRecursive(srcPath, destPath);
+      } else {
+        copyFileSync(srcPath, destPath);
+      }
+    }
+  };
+  copyDirRecursive(recallSource, recallDest);
+  console.log('[ok] Recall skill installed');
+
+  // Setup Python venv + install dependencies
+  const venvPath = join(recallDest, '.venv');
+  if (!existsSync(venvPath)) {
+    try {
+      execSync(`python3 -m venv "${venvPath}"`, { stdio: 'pipe', timeout: 30000 });
+      execSync(`"${join(venvPath, 'bin', 'pip3')}" install -r "${join(recallDest, 'requirements.txt')}"`, {
+        stdio: 'pipe',
+        timeout: 120000,
+      });
+      console.log('[ok] Recall venv created + dependencies installed');
+    } catch (e) {
+      console.log(`[warn] Recall venv setup failed: ${e.message}`);
+    }
+  } else {
+    console.log('[ok] Recall venv already exists');
+  }
+} else {
+  console.log('[warn] Recall skill source not found, skipping');
 }
 
 // 9. Run initial compaction
