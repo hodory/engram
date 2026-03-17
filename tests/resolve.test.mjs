@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll } from "bun:test";
 import { join } from "path";
 import { homedir } from "os";
+import { mkdirSync } from "fs";
 
 import {
   resolveProject,
@@ -10,6 +11,13 @@ import {
 } from "../lib/resolve.mjs";
 
 const FIXTURES_DIR = join(import.meta.dir, "fixtures", "sessions-md");
+
+// Auto-create fixture directories so tests pass on fresh clones
+beforeAll(() => {
+  for (const dir of ["my-project", "my-project--claude-worktrees-elastic-wu", "-Users-user"]) {
+    mkdirSync(join(FIXTURES_DIR, dir), { recursive: true });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // resolveProject
