@@ -33,7 +33,7 @@ const stateFile = join(compactionDir, '.state.json');
 mkdirSync(monthlyDir, { recursive: true });
 
 // 1. Acquire lock
-if (!acquireLock(lockDir)) {
+if (!(await acquireLock(lockDir))) {
   console.error('engram: another instance is running, skipping');
   process.exit(0);
 }
